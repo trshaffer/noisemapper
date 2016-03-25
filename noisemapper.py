@@ -5,40 +5,39 @@ import csv
 import re
 from pprint import pprint
 
-CURRENT_SOURCE_PATTERN = re.compile('i', re.I)
-PULSE_PATTERN = re.compile('pulse', re.I)
-POSITION_PATTERN = re.compile('n', re.I)
+CURRENT_SOURCE_PATTERN = re.compile('^i', re.I)
+PULSE_PATTERN = re.compile('^pulse', re.I)
+POSITION_PATTERN = re.compile(r'\An|_n', re.I)
 
-def get_PWLs(powertrace, dt):
+def get_PWLs(powertrace, fmt, cycletime, risetime, falltime, csf):
     '''
         Return a dictionary keyed by the columns powertrace. Each entry is a
         long string of the form PWL(t1 v1 t2 v2 ...) for the component.
 
         powertrace is a csv.DictReader
-        dt is the cycle time, measured in ns
     '''
     result = dict()
-    peak_rise = 0.1 * dt
-    peak_fall = 0.1 * dt
     i = 0
     components = powertrace.fieldnames
     for c in components:
         result[c] = ['PWL(']
 
     for row in powertrace:
-        cycle_start = dt * i
-        peak = cycle_start + peak_rise
-        cycle_end = peak + peak_fall
+        cycle_start = cycletime * i
+        peak = cycle_start + risetime
+        cycle_end = peak + falltime
         for c in components:
-            peak_amplitude = float(row[c])
+            peak_amplitude = float(row[c]) / csf
+            # don't bother writing out peaks of zero amplitude
             if peak_amplitude != 0.0:
-                result[c].append(' %fN 0 %fN %f %fN 0' % (
-                    cycle_start, peak, peak_amplitude, cycle_end))
+                result[c].append(fmt % (cycle_start, peak, peak_amplitude, cycle_end))
         i = i + 1
 
     for c in components:
-        if len(result[c]) > 1:
-            result[c][1] = result[c][1].strip()
+        # in case we don't hae any data for this component, set it to zero
+        if len(result[c]) == 1:
+            result[c].append('0 0')
+        result[c][1] = result[c][1].strip()
         result[c].append(')')
         result[c] = ''.join(result[c])
 
@@ -51,6 +50,23 @@ def indexof_match(regex, l):
     for i in range(len(l)):
         if regex.match(l[i]): return i
 
+def get_positions(e):
+    '''
+    Extract and return all (x,y) positions in the split line e
+
+    This function is pretty liberal in what it will accept as a position specifier
+    '''
+    result = []
+    for w in e:
+        if POSITION_PATTERN.search(w):
+            pos = w.split('_')[-2:]
+            if len(pos) == 2:
+                try:
+                    result.append([float(x) for x in pos])
+                except ValueError:
+                    pass
+    return result
+
 def get_i_position(e):
     '''
     If e is a current source, return the parsed position
@@ -61,15 +77,13 @@ def get_i_position(e):
         if i:
             return [float(x) for x in e[i].split('_')[1:]]
 
-def i_position_range(spice):
+def position_range(spice):
     '''
-    For the split lines in spice, find the bounding box of the current sources
+    For the split lines in spice, find the bounding box of the all points
     '''
     positions = []
     for e in spice:
-        p = get_i_position(e)
-        if p:
-            positions.append(p)
+        positions += get_positions(e)
     xs = [p[0] for p in positions]
     ys = [p[1] for p in positions]
     return [[min(xs), max(xs)], [min(ys), max(ys)]]
@@ -120,6 +134,13 @@ def find_component(fp, pos):
         if pos[0] >= rec[0][0] and pos[0] <= rec[0][1] and pos[1] >= rec[1][0] and pos[1] <= rec[1][1]:
             return component
 
+def PWL_format(timeprefix, timeprec, aprec):
+    '''
+    Format strings generating format strings...
+    '''
+    return ' %%.%df%s 0 %%.%df%s %%.%df %%.%df%s 0' % (timeprec, timeprefix, timeprec, timeprefix, aprec, timeprec, timeprefix)
+
+
 def translate_to_PWL(floorplan, powertrace, spice):
     '''
     Given a scaled floorplan fp, powertrace pt, and spice file sp, convert current
@@ -145,12 +166,19 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description='The name mappings should be a JSON object of the form {"floorplan_name": "powertrace_name"}')
-    parser.add_argument('-n', '--name-mappings', required=True, help='in JSON')
+    parser.add_argument('-n', '--name-mappings', required=True)
     parser.add_argument('-f', '--floorplan', required=True)
     parser.add_argument('-s', '--spice', required=True)
-    parser.add_argument('-c', '--clock-frequency', required=True, help='in GHz')
+    parser.add_argument('--cycle-time', default=1.0, type=float, help='Defaults to 1.0')
+    parser.add_argument('--rise-time', default=0.1, type=float, help='Defaults to 0.1')
+    parser.add_argument('--fall-time', default=0.1, type=float, help='Defaults to 0.1')
+    parser.add_argument('--current-scale-factor', default=1.0, help='each peak amplitude wil be divided by csf, defaults to 1.0')
     parser.add_argument('-o', '--out', required=True)
     parser.add_argument('-p', '--powertrace', required=True)
+    parser.add_argument('-v', '--verbose', default=False, action='store_true')
+    parser.add_argument('--time-prefix', default='N', help='SI prefix for time units in the output, defaults to N')
+    parser.add_argument('--time-precision', default=1, type=int, help='Number of decimal places to output for time values, defaults to 1')
+    parser.add_argument('--amplitude-precision', default=4, type=int, help='Number of decimal places to output for amplitude values, defaults to 4')
     args = parser.parse_args()
 
     print('loading name mappings')
@@ -168,19 +196,26 @@ if __name__ == '__main__':
                     [float(row[4]), float(row[2]) + float(row[4])]]
 
     print('loading powertrace')
+    fmt = PWL_format(args.time_prefix, args.time_precision, args.amplitude_precision)
     with open(args.powertrace, newline='') as f:
         d = csv.DictReader(f)
-        powertrace = get_PWLs(d, 1.0 / float(args.clock_frequency))
+        powertrace = get_PWLs(d, fmt, args.cycle_time, args.rise_time, args.fall_time, args.current_scale_factor)
 
     print('loading SPICE file')
     with open(args.spice) as f:
         spice = [l.split() for l in f.readlines()]
 
-    print('getting bounding box for current sources')
-    box = i_position_range(spice)
+    print('getting bounding box from SPICE file')
+    box = position_range(spice)
+
+    if args.verbose:
+        pprint(box)
 
     print('scaling floorplan')
     scale_floorplan(floorplan, box)
+
+    if args.verbose:
+        pprint(floorplan)
 
     print('converting to PWL')
     translate_to_PWL(floorplan, powertrace, spice)
