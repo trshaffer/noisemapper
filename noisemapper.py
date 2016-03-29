@@ -88,16 +88,16 @@ def position_range(spice):
     ys = [p[1] for p in positions]
     return [[min(xs), max(xs)], [min(ys), max(ys)]]
 
-def replace_pulse(e, s):
+def replace_current(e, s):
     '''
     Given the split list e containing a SPICE element, replace the pulse
-    (if it exists) with the given string s
+    (if it exists) or the amplitude with the given string s
     '''
     pulse_index = indexof_match(PULSE_PATTERN, e)
     if pulse_index:
         return e[:pulse_index] + [s]
     else:
-        return e
+        return e[:3] + [s]
 
 def chop_pulse(e):
     '''
@@ -159,7 +159,7 @@ def translate_to_PWL(floorplan, powertrace, spice):
             miss += 1
             continue
         hit += 1
-        spice[i] = replace_pulse(spice[i], powertrace[comp])
+        spice[i] = replace_current(spice[i], powertrace[comp])
     print('\thit: %d\n\tmiss: %d' % (hit, miss))
 
 if __name__ == '__main__':
