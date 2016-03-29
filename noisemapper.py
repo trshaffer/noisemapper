@@ -34,7 +34,7 @@ def get_PWLs(powertrace, fmt, cycletime, risetime, falltime, csf):
         i = i + 1
 
     for c in components:
-        # in case we don't hae any data for this component, set it to zero
+        # in case we don't have any data for this component, set it to zero
         if len(result[c]) == 1:
             result[c].append('0 0')
         result[c][1] = result[c][1].strip()
@@ -97,7 +97,7 @@ def replace_current(e, s):
     if pulse_index:
         return e[:pulse_index] + [s]
     else:
-        return e[:3] + [s]
+        return e[:4] + [s]
 
 def chop_pulse(e):
     '''
