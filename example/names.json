@@ -1,11 +1,9 @@
 {
-  "MC1": "Core1",
   "FPU1": "FPUs1",
   "ALU1": "IntALUs1",
   "IntRF1": "IntRF1",
   "CplALU1": "CplxALUs1",
   "FlpRF1": "FPRF1",
-  "ROB1": "",
   "IntIW1": "InstWin1",
   "FlpIW1": "FPInstWin1",
   "IntRAT1": "IntFERAT1",
@@ -21,6 +19,5 @@
   "StQ1": "StrQ1",
   "LdQ1": "LdStrU1",
   "DCache1": "DataC1",
-  "NoC1": "",
   "L2_1": "L2LoclPre1"
 }
