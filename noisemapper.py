@@ -28,9 +28,7 @@ def get_PWLs(powertrace, fmt, cycletime, risetime, falltime, csf):
         cycle_end = peak + falltime
         for c in components:
             peak_amplitude = float(row[c]) / csf
-            # don't bother writing out peaks of zero amplitude
-            if peak_amplitude != 0.0:
-                result[c].append(fmt % (cycle_start, peak, peak_amplitude, cycle_end))
+            result[c].append(fmt % (cycle_start, peak, peak_amplitude, cycle_end))
         i = i + 1
 
     for c in components:
