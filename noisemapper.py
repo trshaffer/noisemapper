@@ -154,6 +154,7 @@ def translate_to_PWL(floorplan, powertrace, spice):
             continue
         comp = find_component(floorplan, pos)
         if not comp:
+            spice[i].insert(0, '*')
             miss += 1
             continue
         hit += 1
