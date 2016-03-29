@@ -191,9 +191,13 @@ if __name__ == '__main__':
         d = csv.reader((row for row in f if not row.startswith('#')), delimiter='\t')
         for row in d:
             if row:
-                floorplan[name_mappings[row[0]]] = [
-                    [float(row[3]), float(row[1]) + float(row[3])],
-                    [float(row[4]), float(row[2]) + float(row[4])]]
+                try:
+                    floorplan[name_mappings[row[0]]] = [
+                        [float(row[3]), float(row[1]) + float(row[3])],
+                        [float(row[4]), float(row[2]) + float(row[4])]]
+                except KeyError:
+                    #ignore anything not listed in names.json
+                    pass
 
     print('loading powertrace')
     fmt = PWL_format(args.time_prefix, args.time_precision, args.amplitude_precision)
