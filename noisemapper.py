@@ -88,14 +88,10 @@ def position_range(spice):
 
 def replace_current(e, s):
     '''
-    Given the split list e containing a SPICE element, replace the pulse
-    (if it exists) or the amplitude with the given string s
+    Given the split list e containing a SPICE element, replace
+    the amplitude with the given string s
     '''
-    pulse_index = indexof_match(PULSE_PATTERN, e)
-    if pulse_index:
-        return e[:pulse_index] + [s]
-    else:
-        return e[:3] + [s]
+    return e[:3] + [s]
 
 def chop_pulse(e):
     '''
