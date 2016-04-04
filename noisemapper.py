@@ -6,6 +6,7 @@ import re
 from pprint import pprint
 
 CURRENT_SOURCE_PATTERN = re.compile('^i', re.I)
+INDUCTOR_PATTERN = re.compile('^l', re.I)
 PULSE_PATTERN = re.compile('^pulse', re.I)
 POSITION_PATTERN = re.compile(r'\An|_n', re.I)
 
@@ -70,10 +71,13 @@ def get_i_position(e):
     If e is a current source, return the parsed position
     e is a split line to check
     '''
-    if e and CURRENT_SOURCE_PATTERN.match(e[0]):
+    if e:
         i = indexof_match(POSITION_PATTERN, e)
         if i:
             return [float(x) for x in e[i].split('_')[1:]]
+
+def get_l_positions(e):
+    return [[float(x) for x in p] for p in [f.split('_')[-2:] for f in e[1:3]]]
 
 def position_range(spice):
     '''
@@ -128,6 +132,26 @@ def find_component(fp, pos):
         if pos[0] >= rec[0][0] and pos[0] <= rec[0][1] and pos[1] >= rec[1][0] and pos[1] <= rec[1][1]:
             return component
 
+def pop_worst(d):
+    loser_value = max(d.values())
+    for k,v in d.items():
+        if v == loser_value:
+            loser = k
+    return d.pop(loser)
+
+def nearest_components(fp, pos, name, best):
+    for component, rec in fp.items():
+        if pos[0] >= rec[0][0] and pos[0] <= rec[0][1] and pos[1] >= rec[1][0] and pos[1] <= rec[1][1]:
+            # we're inside a rectangle
+            best[component][name] = 0.0
+        else:
+            distance = abs((rec[0][0] + rec[0][1])/2 - pos[0]) + abs((rec[1][0] + rec[1][1])/2 - pos[1])
+            if len(best[component].keys()) < 5:
+                best[component][name] = distance
+            elif distance < max(best[component].values()):
+                best[component][name] = distance
+                pop_worst(best[component])
+
 def PWL_format(timeprefix, timeprec, aprec):
     '''
     Format strings generating format strings...
@@ -142,20 +166,32 @@ def translate_to_PWL(floorplan, powertrace, spice):
     '''
     hit = 0
     miss = 0
+    inductors = {'left': {}, 'right': {}}
+    for comp in floorplan.keys():
+        inductors['left'][comp] = {}
+        inductors['right'][comp] = {}
     for i in range(len(spice)):
-        if len(spice[i]) < 1 or not CURRENT_SOURCE_PATTERN.match(spice[i][0]):
+        if len(spice[i]) < 1:
             continue
-        pos = get_i_position(spice[i])
-        if not pos:
-            continue
-        comp = find_component(floorplan, pos)
-        if not comp:
-            spice[i].insert(0, '*')
-            miss += 1
-            continue
-        hit += 1
-        spice[i] = replace_current(spice[i], powertrace[comp])
+        if CURRENT_SOURCE_PATTERN.match(spice[i][0]):
+            pos = get_i_position(spice[i])
+            if not pos:
+                continue
+            comp = find_component(floorplan, pos)
+            if not comp:
+                spice[i].insert(0, '*')
+                miss += 1
+                continue
+            hit += 1
+            spice[i] = replace_current(spice[i], powertrace[comp])
+        elif INDUCTOR_PATTERN.match(spice[i][0]):
+            pos = get_l_positions(spice[i])
+            if not pos:
+                continue
+            nearest_components(floorplan, pos[0], spice[i][0], inductors['left'])
+            nearest_components(floorplan, pos[1], spice[i][0], inductors['right'])
     print('\thit: %d\n\tmiss: %d' % (hit, miss))
+    return inductors
 
 if __name__ == '__main__':
     import argparse
@@ -169,6 +205,7 @@ if __name__ == '__main__':
     parser.add_argument('--fall-time', default=0.1, type=float, help='Defaults to 0.1')
     parser.add_argument('--current-scale-factor', default=1.0, help='each peak amplitude wil be divided by csf, defaults to 1.0')
     parser.add_argument('-o', '--out', default='out.spice', help='Defaults to out.spice')
+    parser.add_argument('-l', '--inductors', default='inductors.json', help='Sets of nearest inductors for each component. Defaults to inductors.json')
     parser.add_argument('-p', '--powertrace', default='powertrace.csv', help='Defaults to powertrace.csv')
     parser.add_argument('-v', '--verbose', action='store_true')
     parser.add_argument('--time-prefix', default='N', help='SI prefix for time units in the output, defaults to N')
@@ -217,7 +254,11 @@ if __name__ == '__main__':
         pprint(floorplan)
 
     print('converting to PWL')
-    translate_to_PWL(floorplan, powertrace, spice)
+    inductors = translate_to_PWL(floorplan, powertrace, spice)
+
+    print('writing out inductors')
+    with open(args.inductors, 'w') as f:
+        json.dump(inductors, f, sort_keys=True, indent=4, separators=(',', ': '))
 
     print('writing out new SPICE file')
     with open(args.out, 'w') as f:
