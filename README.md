@@ -4,7 +4,8 @@
                           [--cycle-time CYCLE_TIME] [--rise-time RISE_TIME]
                           [--fall-time FALL_TIME]
                           [--current-scale-factor CURRENT_SCALE_FACTOR] [-o OUT]
-                          [-p POWERTRACE] [-v] [--time-prefix TIME_PREFIX]
+                          [-l INDUCTORS] [-p POWERTRACE] [-v]
+                          [--time-prefix TIME_PREFIX]
                           [--time-precision TIME_PRECISION]
                           [--amplitude-precision AMPLITUDE_PRECISION]
 
@@ -29,6 +30,9 @@
                             each peak amplitude wil be divided by csf, defaults to
                             1.0
       -o OUT, --out OUT     Defaults to out.spice
+      -l INDUCTORS, --inductors INDUCTORS
+                            Sets of nearest inductors for each component. Defaults
+                            to inductors.json
       -p POWERTRACE, --powertrace POWERTRACE
                             Defaults to powertrace.csv
       -v, --verbose
