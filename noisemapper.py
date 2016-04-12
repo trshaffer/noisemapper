@@ -3,6 +3,7 @@
 import json
 import csv
 import re
+import math
 from pprint import pprint
 
 CURRENT_SOURCE_PATTERN = re.compile('^i', re.I)
@@ -29,6 +30,8 @@ def get_PWLs(powertrace, fmt, cycletime, risetime, falltime, csf):
         cycle_end = peak + falltime
         for c in components:
             peak_amplitude = float(row[c]) / csf
+            if math.isinf(peak_amplitude) or math.isnan(peak_amplitude):
+                peak_amplitude = 0.0
             result[c].append(fmt % (cycle_start, peak, peak_amplitude, cycle_end))
         i = i + 1
 
