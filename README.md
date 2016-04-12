@@ -8,6 +8,7 @@
                           [--time-prefix TIME_PREFIX]
                           [--time-precision TIME_PRECISION]
                           [--amplitude-precision AMPLITUDE_PRECISION]
+                          [--nearest-inductors NEAREST_INDUCTORS]
 
     The name mappings should be a JSON object of the form {"floorplan_name":
     "powertrace_name"}
@@ -44,4 +45,6 @@
       --amplitude-precision AMPLITUDE_PRECISION
                             Number of decimal places to output for amplitude
                             values, defaults to 4
+      --nearest-inductors NEAREST_INDUCTORS
+                            Number nearby inductors to report, defaults to 5
 

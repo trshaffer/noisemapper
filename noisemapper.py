@@ -136,23 +136,35 @@ def find_component(fp, pos):
             return component
 
 def pop_worst(d):
-    loser_value = max(d.values())
+    loser_value = max([e['distance'] for e in d.values()])
     for k,v in d.items():
-        if v == loser_value:
+        if v['distance'] == loser_value:
             loser = k
     return d.pop(loser)
 
-def nearest_components(fp, pos, name, best):
+def nearest_components(fp, pos, name, left, right, best, inductor_count):
     for component, rec in fp.items():
         if pos[0] >= rec[0][0] and pos[0] <= rec[0][1] and pos[1] >= rec[1][0] and pos[1] <= rec[1][1]:
             # we're inside a rectangle
-            best[component][name] = 0.0
+            best[component][name] = {
+                'left': left,
+                'right': right,
+                'distance': 0.0
+            }
         else:
             distance = abs((rec[0][0] + rec[0][1])/2 - pos[0]) + abs((rec[1][0] + rec[1][1])/2 - pos[1])
-            if len(best[component].keys()) < 5:
-                best[component][name] = distance
-            elif distance < max(best[component].values()):
-                best[component][name] = distance
+            if len([k for k,v in best[component].items() if v['distance'] > 0.0]) < inductor_count:
+                best[component][name] = {
+                    'left': left,
+                    'right': right,
+                    'distance': distance
+                }
+            elif distance < max([b['distance'] for b in best[component].values()]):
+                best[component][name] = {
+                    'left': left,
+                    'right': right,
+                    'distance': distance
+                }
                 pop_worst(best[component])
 
 def PWL_format(timeprefix, timeprec, aprec):
@@ -162,17 +174,16 @@ def PWL_format(timeprefix, timeprec, aprec):
     return ' %%.%df%s 0 %%.%df%s %%.%df %%.%df%s 0' % (timeprec, timeprefix, timeprec, timeprefix, aprec, timeprec, timeprefix)
 
 
-def translate_to_PWL(floorplan, powertrace, spice):
+def translate_to_PWL(floorplan, powertrace, spice, inductor_count):
     '''
     Given a scaled floorplan fp, powertrace pt, and spice file sp, convert current
     sources to PWL representation using the given power data
     '''
     hit = 0
     miss = 0
-    inductors = {'left': {}, 'right': {}}
+    inductors = {'list': [], 'nearest': {}}
     for comp in floorplan.keys():
-        inductors['left'][comp] = {}
-        inductors['right'][comp] = {}
+        inductors['nearest'][comp] = {}
     for i in range(len(spice)):
         if len(spice[i]) < 1:
             continue
@@ -188,11 +199,11 @@ def translate_to_PWL(floorplan, powertrace, spice):
             hit += 1
             spice[i] = replace_current(spice[i], powertrace[comp])
         elif INDUCTOR_PATTERN.match(spice[i][0]):
+            inductors['list'].append(spice[i][0])
             pos = get_l_positions(spice[i])
             if not pos:
                 continue
-            nearest_components(floorplan, pos[0], spice[i][0], inductors['left'])
-            nearest_components(floorplan, pos[1], spice[i][0], inductors['right'])
+            nearest_components(floorplan, pos[0], spice[i][0], spice[i][1], spice[i][2], inductors['nearest'], inductor_count)
     print('\thit: %d\n\tmiss: %d' % (hit, miss))
     return inductors
 
@@ -214,6 +225,7 @@ if __name__ == '__main__':
     parser.add_argument('--time-prefix', default='N', help='SI prefix for time units in the output, defaults to N')
     parser.add_argument('--time-precision', default=1, type=int, help='Number of decimal places to output for time values, defaults to 1')
     parser.add_argument('--amplitude-precision', default=4, type=int, help='Number of decimal places to output for amplitude values, defaults to 4')
+    parser.add_argument('--nearest-inductors', default=5, type=int, help='Number nearby inductors to report, defaults to 5')
     args = parser.parse_args()
 
     print('loading name mappings')
@@ -257,7 +269,7 @@ if __name__ == '__main__':
         pprint(floorplan)
 
     print('converting to PWL')
-    inductors = translate_to_PWL(floorplan, powertrace, spice)
+    inductors = translate_to_PWL(floorplan, powertrace, spice, args.nearest_inductors)
 
     print('writing out inductors')
     with open(args.inductors, 'w') as f:
