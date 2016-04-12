@@ -1,4 +1,5 @@
 out.spice
+inductors.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
