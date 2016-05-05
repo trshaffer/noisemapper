@@ -10,6 +10,9 @@ CURRENT_SOURCE_PATTERN = re.compile('^i', re.I)
 INDUCTOR_PATTERN = re.compile('^l', re.I)
 PULSE_PATTERN = re.compile('^pulse', re.I)
 POSITION_PATTERN = re.compile(r'\An|_n', re.I)
+TIME_PATTERN = re.compile(r'^\.tran', re.I)
+
+max_time = 0
 
 def get_PWLs(powertrace, fmt, cycletime, risetime, falltime, csf):
     '''
@@ -27,13 +30,15 @@ def get_PWLs(powertrace, fmt, cycletime, risetime, falltime, csf):
     for row in powertrace:
         cycle_start = cycletime * i
         peak = cycle_start + risetime
-        cycle_end = peak + falltime
+        cycle_fall = cycle_start + cycletime - falltime
         for c in components:
             peak_amplitude = float(row[c]) / csf
             if math.isinf(peak_amplitude) or math.isnan(peak_amplitude):
                 peak_amplitude = 0.0
-            result[c].append(fmt % (cycle_start, peak, peak_amplitude, cycle_end))
+            result[c].append(fmt % (cycle_start, peak, peak_amplitude, cycle_fall, peak_amplitude))
         i = i + 1
+        global max_time
+    max_time = i * cycletime
 
     for c in components:
         # in case we don't hae any data for this component, set it to zero
@@ -171,7 +176,7 @@ def PWL_format(timeprefix, timeprec, aprec):
     '''
     Format strings generating format strings...
     '''
-    return ' %%.%df%s 0 %%.%df%s %%.%df %%.%df%s 0' % (timeprec, timeprefix, timeprec, timeprefix, aprec, timeprec, timeprefix)
+    return ' %%.%df%s 0 %%.%df%s %%.%df %%.%df%s %%.%df' % (timeprec, timeprefix, timeprec, timeprefix, aprec, timeprec, timeprefix, aprec)
 
 
 def translate_to_PWL(floorplan, powertrace, spice, inductor_count):
@@ -207,6 +212,16 @@ def translate_to_PWL(floorplan, powertrace, spice, inductor_count):
     print('\thit: %d\n\tmiss: %d' % (hit, miss))
     return inductors
 
+def single_PWL(fmt, pwl, spice):
+    print(len(spice))
+    for i in range(len(spice)):
+        if len(spice[i]) < 1:
+            continue
+        elif TIME_PATTERN.match(spice[i][0]):
+            spice[i] = spice[i][:2] + [fmt % max_time]
+        elif CURRENT_SOURCE_PATTERN.match(spice[i][0]):
+            spice[i] = replace_current(spice[i], pwl)
+
 if __name__ == '__main__':
     import argparse
 
@@ -226,25 +241,28 @@ if __name__ == '__main__':
     parser.add_argument('--time-precision', default=1, type=int, help='Number of decimal places to output for time values, defaults to 1')
     parser.add_argument('--amplitude-precision', default=4, type=int, help='Number of decimal places to output for amplitude values, defaults to 4')
     parser.add_argument('--nearest-inductors', default=5, type=int, help='Number nearby inductors to report, defaults to 5')
+    parser.add_argument('--single', help='Assume all FUs are the one given rather than checking the floorplan')
     args = parser.parse_args()
 
-    print('loading name mappings')
-    with open(args.name_mappings) as f:
-        name_mappings = json.load(f)
+    if not args.single:
+        print('loading name mappings')
+        with open(args.name_mappings) as f:
+            name_mappings = json.load(f)
 
-    floorplan = dict()
-    print('loading floorplan')
-    with open(args.floorplan, newline='') as f:
-        d = csv.reader((row for row in f if not row.startswith('#')), delimiter='\t')
-        for row in d:
-            if row:
-                try:
-                    floorplan[name_mappings[row[0]]] = [
-                        [float(row[3]), float(row[1]) + float(row[3])],
-                        [float(row[4]), float(row[2]) + float(row[4])]]
-                except KeyError:
-                    #ignore anything not listed in names.json
-                    pass
+    if not args.single:
+        floorplan = dict()
+        print('loading floorplan')
+        with open(args.floorplan, newline='') as f:
+            d = csv.reader((row for row in f if not row.startswith('#')), delimiter='\t')
+            for row in d:
+                if row:
+                    try:
+                        floorplan[name_mappings[row[0]]] = [
+                            [float(row[3]), float(row[1]) + float(row[3])],
+                            [float(row[4]), float(row[2]) + float(row[4])]]
+                    except KeyError:
+                        #ignore anything not listed in names.json
+                        pass
 
     print('loading powertrace')
     fmt = PWL_format(args.time_prefix, args.time_precision, args.amplitude_precision)
@@ -256,24 +274,30 @@ if __name__ == '__main__':
     with open(args.spice) as f:
         spice = [l.split() for l in f.readlines()]
 
-    print('getting bounding box from SPICE file')
-    box = position_range(spice)
+    if not args.single:
+        print('getting bounding box from SPICE file')
+        box = position_range(spice)
 
-    if args.verbose:
+    if args.verbose and not args.single:
         pprint(box)
 
-    print('scaling floorplan')
-    scale_floorplan(floorplan, box)
+    if not args.single:
+        print('scaling floorplan')
+        scale_floorplan(floorplan, box)
 
-    if args.verbose:
+    if args.verbose and not args.single:
         pprint(floorplan)
 
     print('converting to PWL')
-    inductors = translate_to_PWL(floorplan, powertrace, spice, args.nearest_inductors)
+    if args.single:
+        single_PWL('%%f%s' % args.time_prefix, powertrace[args.single], spice)
+    else:
+        inductors = translate_to_PWL(floorplan, powertrace, spice, args.nearest_inductors)
 
-    print('writing out inductors')
-    with open(args.inductors, 'w') as f:
-        json.dump(inductors, f, sort_keys=True, indent=4, separators=(',', ': '))
+    if not args.single:
+        print('writing out inductors')
+        with open(args.inductors, 'w') as f:
+            json.dump(inductors, f, sort_keys=True, indent=4, separators=(',', ': '))
 
     print('writing out new SPICE file')
     with open(args.out, 'w') as f:
