@@ -213,12 +213,11 @@ def translate_to_PWL(floorplan, powertrace, spice, inductor_count):
     return inductors
 
 def single_PWL(fmt, pwl, spice):
-    print(len(spice))
     for i in range(len(spice)):
         if len(spice[i]) < 1:
             continue
         elif TIME_PATTERN.match(spice[i][0]):
-            spice[i] = spice[i][:2] + [fmt % max_time]
+            spice[i] = spice[i][:1] + ['10ps', fmt % max_time]
         elif CURRENT_SOURCE_PATTERN.match(spice[i][0]):
             spice[i] = replace_current(spice[i], pwl)
 
